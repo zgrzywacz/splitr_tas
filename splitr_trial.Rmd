@@ -1,0 +1,155 @@
+---
+title: "splitr MRD"
+author: "Amy Hessl"
+date: "5/28/2021"
+output: html_document
+---
+
+```{r libraries}
+library(splitr)
+library(magrittr)
+library(lubridate)
+setwd("hysplit")
+```
+
+Requires that you set up the following directories in "hysplit/": "met", "out", "working"
+```{r one trajectory}
+setwd("hysplit")
+trajectory <- 
+  hysplit_trajectory(
+    lat = -41.83989,
+    lon = 145.531014,
+    height = 10,
+    duration = 24,
+    days = "2013-01-1",
+    daily_hours = c(0, 6, 12, 18),
+    direction = "backward",
+    met_type = "reanalysis",
+    extended_met = TRUE
+  ) 
+```
+### Plotting
+```{r trajplot}
+
+# Plot results using the trajectory data frame
+trajectory_plot(trajectory)
+
+# Plot results using the trajectory model object
+trajectory_model %>% trajectory_plot
+```
+
+### traj.series() function to create a single dataframe of trajectory points for a series of dates
+```{r traj.series function}
+
+traj.series <- function (dayDate){
+  trajectory <- 
+    hysplit_trajectory(
+      lat = -41.83989,
+      lon = 145.531014,
+      height = 10,
+      duration = 120,
+      days = dayDate,
+      daily_hours = c(0, 6, 12, 18),
+      direction = "backward",
+      met_type = "reanalysis",
+      extended_met = TRUE
+  ) 
+}
+
+endDate <- seq(ymd('2012-11-01'), ymd('2013-02-01'), by = '5 day')
+
+trajL <- lapply (endDate, FUN=traj.series)
+trajDF <- do.call(rbind, trajL)
+latlons <- data.frame(lon=trajDF$lon, lat=trajDF$lat)
+```
+
+
+### Plot the points
+```{r}
+library("ggplot2")
+theme_set(theme_bw())
+library("sf")
+library("rnaturalearth")
+library("rnaturalearthdata")
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+
+ggplot(data = world) +
+    geom_sf() +
+    geom_point(data = latlons, aes(x = lon, y = lat), size = 0.5, 
+        shape = 1, col="grey50") +
+    coord_sf(xlim = c(40, 160), ylim = c(-80, -20), expand = FALSE)
+```
+
+
+
+```{r summarize point density by raster}
+library(sp)
+library(raster)
+library(rgdal)
+library(RColorBrewer)
+library(rasterVis)
+
+r <- raster(xmn=40, ymn=-80, xmx=160, ymx=-20, nrows=120, ncols=240)
+r[] <- 0
+
+# use rasterize() to summarize the other vars from trajDF
+hpa <- rasterize(latlons, r, field=trajDF$pressure, fun=mean)
+
+count <- rasterize(latlons, r, field=trajDF$receptor, fun=sum)
+
+
+coastlines <- readOGR("ne-coastlines-10m/ne_10m_coastline.shp")
+
+tas <- crop(coastlines, r)
+
+colr <- colorRampPalette(brewer.pal(11, 'RdYlBu'))
+
+plot(count)
+plot(tas, add=TRUE)
+
+#try RasterVis::levelplot
+```
+
+Levelplot
+```{r}
+library(rasterVis)
+
+colr <- colorRampPalette(brewer.pal(9, 'BuGn'))
+AustProj <- CRS("+proj=lcc +lat_1=-28 +lat_2=-36 +lat_0=-32 +lon_0=135 +x_0=1000000 +y_0=2000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+
+AustProj <- CRS("+proj=aea +lat_1=-18 +lat_2=-36 +lat_0=0 +lon_0=132 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+#reproject the raster:
+count_Oz <- projectRaster(count, crs = AustProj)
+tas_Oz <- spTransform(tas, CRSobj=AustProj)
+
+#unprojected: tas, count
+
+levelplot(count_Oz, margin=FALSE, xlab="Longitude", ylab="Latitude",  pretty=FALSE, col.regions=colr) +
+  layer(sp.lines(tas_Oz))
+
+
+```
+
+
+Using ggplot()
+```{r}
+
+r_pts <- rasterToPoints(count, spatial = TRUE)
+# Then to a 'conventional' dataframe
+r_df  <- data.frame(r_pts)
+r_df$layer[r_df$layer==0] <- NA
+rm(r_pts)
+
+ggplot() +
+ geom_raster(data = r_df , aes(x = x, y = y, fill = layer)) +
+    geom_sf(data=world, fill = NA) +
+    #geom_point(data = latlons, aes(x = lon, y = lat), size = 1, 
+        #shape = 1, col="grey30") +
+    coord_sf(xlim = c(40, 160), ylim = c(-80, -20), expand = FALSE)
+
+```
+
+
+
