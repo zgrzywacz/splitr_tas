@@ -100,7 +100,7 @@ hpa <- rasterize(latlons, r, field=trajDF$pressure, fun=mean)
 count <- rasterize(latlons, r, field=trajDF$receptor, fun=sum)
 
 
-coastlines <- readOGR("ne-coastlines-10m/ne_10m_coastline.shp")
+coastlines <- readOGR("ne_10m_coastline/ne_10m_coastline.shp")
 
 tas <- crop(coastlines, r)
 
@@ -153,3 +153,72 @@ ggplot() +
 
 
 
+```{r traj.series function}
+setwd("hysplit")
+traj.series <- function (dayDate){
+  trajectory <- 
+    hysplit_trajectory(
+      lat = -41.83989,
+      lon = 145.531014,
+      height = 10,
+      duration = 120,
+      days = dayDate,
+      daily_hours = c(0, 6, 12, 18),
+      direction = "backward",
+      met_type = "reanalysis",
+      extended_met = TRUE
+  ) 
+}
+
+endDate <- seq(ymd('2012-09-01'), ymd('2013-02-28'), by = '1 day')
+
+trajL <- lapply (endDate, FUN=traj.series)
+trajDF <- do.call(rbind, trajL)
+latlons <- data.frame(lon=trajDF$lon, lat=trajDF$lat)
+```
+
+```{r}
+library("ggplot2")
+theme_set(theme_bw())
+library("sf")
+library("rnaturalearth")
+library("rnaturalearthdata")
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+
+ggplot(data = world) +
+    geom_sf() +
+    geom_point(data = latlons, aes(x = lon, y = lat), size = 0.5, 
+        shape = 1, col="grey50") +
+    coord_sf(xlim = c(40, 160), ylim = c(-80, -20), expand = FALSE)
+```
+
+
+```{r summarize point density by raster}
+library(sp)
+library(raster)
+library(rgdal)
+library(RColorBrewer)
+library(rasterVis)
+
+r <- raster(xmn=40, ymn=-80, xmx=160, ymx=-20, nrows=120, ncols=240)
+r[] <- 0
+
+# use rasterize() to summarize the other vars from trajDF
+hpa <- rasterize(latlons, r, field=trajDF$pressure, fun=mean)
+
+count <- rasterize(latlons, r, field=trajDF$receptor, fun=sum)
+
+
+coastlines <- readOGR("ne_10m_coastline/ne_10m_coastline.shp")
+
+tas <- crop(coastlines, r)
+
+colr <- colorRampPalette(brewer.pal(11, 'RdYlBu'))
+
+plot(count)
+plot(tas, add=TRUE)
+
+#try RasterVis::levelplot
+```
